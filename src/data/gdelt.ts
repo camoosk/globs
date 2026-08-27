@@ -51,7 +51,8 @@ function toRecord(article: GdeltArticle, index: number): NormalizedRecord | null
       title: article.domain ?? article.title,
       publishedAt,
       retrievedAt: new Date().toISOString(),
-      originalLanguage: article.language
+      originalLanguage: article.language,
+      sourceCountryCode: article.sourcecountry
     },
     headline: article.title,
     language: article.language,
