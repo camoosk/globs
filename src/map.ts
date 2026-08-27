@@ -1,4 +1,5 @@
 import L from 'leaflet';
+import { heatLayer } from '@linkurious/leaflet-heat';
 import 'leaflet/dist/leaflet.css';
 
 interface GeoJsonFeature {
@@ -38,19 +39,26 @@ const featureCollection = (payload: unknown): FeatureCollection => {
 
 async function fetchNewsActivity(): Promise<GeoJsonFeature[]> {
   const params = new URLSearchParams({
-    query: 'world',
-    mode: 'pointheatmap',
-    format: 'geojson',
+    query: '(world OR global OR international OR breaking)',
+    mode: 'PointHeatmap',
+    format: 'GeoJSON',
     timespan: '24h',
-    maxpoints: '700'
+    maxpoints: '1000'
   });
-  const response = await fetch(`${NEWS_GEO_API}?${params.toString()}`, { headers: { Accept: 'application/json' } });
+  const response = await fetch(`${NEWS_GEO_API}?${params.toString()}`, {
+    headers: { Accept: 'application/json' }
+  });
   if (!response.ok) throw new Error(`GDELT GEO ${response.status}`);
-  return featureCollection(await response.json()).features ?? [];
+  const payload = await response.json();
+  const features = featureCollection(payload).features ?? [];
+  if (!features.length) throw new Error('GDELT GEO returned no heatmap points');
+  return features;
 }
 
 async function fetchDisasters(): Promise<GeoJsonFeature[]> {
-  const response = await fetch(GDACS_API, { headers: { Accept: 'application/geo+json, application/json' } });
+  const response = await fetch(GDACS_API, {
+    headers: { Accept: 'application/geo+json, application/json' }
+  });
   if (!response.ok) throw new Error(`GDACS ${response.status}`);
   return featureCollection(await response.json()).features ?? [];
 }
@@ -65,7 +73,7 @@ function disasterLabel(properties: Record<string, unknown> = {}) {
 class LegendControl extends L.Control {
   onAdd() {
     const div = L.DomUtil.create('div', 'map-legend');
-    div.innerHTML = '<b>World activity</b><span><i class="legend-news"></i> News activity</span><span><i class="legend-disaster"></i> Disaster</span>';
+    div.innerHTML = '<b>World activity</b><span><i class="legend-news"></i> News heat</span><span><i class="legend-disaster"></i> Disaster</span>';
     L.DomEvent.disableClickPropagation(div);
     return div;
   }
@@ -88,7 +96,12 @@ class StatusControl extends L.Control {
 }
 
 export async function initWorldMap(element: HTMLElement) {
-  const map = L.map(element, { worldCopyJump: true, minZoom: 2, maxZoom: 7, zoomControl: true }).setView([20, 0], 2);
+  const map = L.map(element, {
+    worldCopyJump: true,
+    minZoom: 2,
+    maxZoom: 7,
+    zoomControl: true
+  }).setView([20, 0], 2);
 
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 7,
@@ -101,21 +114,36 @@ export async function initWorldMap(element: HTMLElement) {
   new LegendControl({ position: 'bottomright' }).addTo(map);
   const status = new StatusControl({ position: 'topright' }).addTo(map);
 
-  const [newsFeatures, disasterFeatures] = await Promise.allSettled([fetchNewsActivity(), fetchDisasters()]);
+  const [newsFeatures, disasterFeatures] = await Promise.allSettled([
+    fetchNewsActivity(),
+    fetchDisasters()
+  ]);
 
   if (newsFeatures.status === 'fulfilled') {
-    newsFeatures.value.forEach((feature) => {
+    const points: Array<[number, number, number]> = [];
+    const weights = newsFeatures.value.map((feature) =>
+      asNumber(feature.properties?.count ?? feature.properties?.value ?? feature.properties?.weight) ?? 1
+    );
+    const maxWeight = Math.max(...weights, 1);
+
+    newsFeatures.value.forEach((feature, index) => {
       const point = pointFromFeature(feature);
       if (!point) return;
-      const weight = asNumber(feature.properties?.count ?? feature.properties?.value ?? feature.properties?.weight) ?? 1;
-      const radius = Math.min(22, 5 + Math.sqrt(Math.max(weight, 1)) * 2.2);
-      L.circle(point, {
-        radius: radius * 18000,
-        stroke: false,
-        fillOpacity: Math.min(0.18, 0.04 + Math.log10(Math.max(weight, 1) + 1) * 0.05),
-        className: 'news-heat'
-      }).addTo(newsLayer);
+      const weight = weights[index];
+      const intensity = Math.min(1, Math.max(0.08, Math.log10(weight + 1) / Math.log10(maxWeight + 1)));
+      points.push([point[0], point[1], intensity]);
     });
+
+    if (points.length) {
+      const heat = heatLayer(points, {
+        radius: 25,
+        blur: 18,
+        maxZoom: 5,
+        minOpacity: 0.2,
+        max: 1
+      });
+      newsLayer.addLayer(heat);
+    }
   }
 
   if (disasterFeatures.status === 'fulfilled') {
@@ -125,7 +153,10 @@ export async function initWorldMap(element: HTMLElement) {
       const properties = feature.properties ?? {};
       const level = String(properties.alertlevel ?? properties.alertLevel ?? '').toLowerCase();
       const severityClass = level === 'red' ? 'disaster-red' : level === 'orange' ? 'disaster-orange' : 'disaster-green';
-      L.circleMarker(point, { radius: level === 'red' ? 8 : 6, className: severityClass })
+      L.circleMarker(point, {
+        radius: level === 'red' ? 8 : 6,
+        className: severityClass
+      })
         .bindTooltip(disasterLabel(properties), { direction: 'top' })
         .addTo(disasterLayer);
     });
@@ -133,9 +164,20 @@ export async function initWorldMap(element: HTMLElement) {
 
   const newsOk = newsFeatures.status === 'fulfilled';
   const disasterOk = disasterFeatures.status === 'fulfilled';
-  status.setText(newsOk && disasterOk ? 'Live sources · updated now' : 'Partial source availability');
+  if (newsOk && disasterOk) {
+    status.setText('News + disasters · near-real-time');
+  } else if (newsOk) {
+    status.setText('News live · disaster source unavailable');
+  } else if (disasterOk) {
+    status.setText('Disasters live · news heat unavailable');
+  } else {
+    status.setText('Live sources unavailable');
+  }
 
-  L.control.layers(undefined, { 'News activity': newsLayer, Disasters: disasterLayer }, { collapsed: true, position: 'topright' }).addTo(map);
+  L.control.layers(undefined, {
+    'News heat': newsLayer,
+    Disasters: disasterLayer
+  }, { collapsed: true, position: 'topright' }).addTo(map);
 
   window.setTimeout(() => map.invalidateSize(), 0);
   return map;
