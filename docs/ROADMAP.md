@@ -6,9 +6,9 @@
 - [x] Establish core principles
 - [x] Define initial scope and non-goals
 - [x] Define browser-first architecture direction
-- [ ] Define domain contracts
-- [ ] Define source contract
-- [ ] Define normalized event/story model
+- [x] Define domain contracts
+- [x] Define source adapter contract
+- [x] Define normalized event/story model
 
 ## Phase 1 — Browser Foundation
 
