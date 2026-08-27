@@ -49,7 +49,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
     </section>
 
     <section class="panel map-panel" aria-label="Live world map">
-      <div class="panel-heading map-heading"><div><span>🌍</span><h2>${t.worldNow}</h2></div><small>News activity + disaster signals</small></div>
+      <div class="panel-heading map-heading"><div><span>🌍</span><h2>${t.worldNow}</h2></div><small>News coverage + disaster signals</small></div>
       <div id="world-map" class="world-map" role="application" aria-label="Live world activity map"></div>
     </section>
 
@@ -76,15 +76,16 @@ function renderStories(containerId: string, stories: Story[], emptyMessage: stri
   `).join('');
 }
 
+const worldStoriesPromise: Promise<Story[]> = fetchSourceData()
+  .then((result) => result.flatMap((item) => item.records).map((record) => record.story));
+
 async function loadWorld() {
-  const result = await fetchSourceData();
-  const records = result.flatMap((item) => item.records);
-  const stories = records.map((record) => record.story);
+  const stories = await worldStoriesPromise;
   renderStories('latest-list', stories, t.unavailable);
   renderStories('trending-list', stories.slice(0, 5), t.unavailable);
 }
 
-void initWorldMap(document.querySelector<HTMLElement>('#world-map')!).catch(() => undefined);
+void initWorldMap(document.querySelector<HTMLElement>('#world-map')!, worldStoriesPromise).catch(() => undefined);
 void loadWorld();
 
 document.querySelector<HTMLFormElement>('#search-form')?.addEventListener('submit', async (event) => {
