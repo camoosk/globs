@@ -48,7 +48,7 @@ function toRecord(article: GdeltArticle, index: number): NormalizedRecord | null
     source: {
       sourceId: source.id,
       url: article.url,
-      title: article.title,
+      title: article.domain ?? article.title,
       publishedAt,
       retrievedAt: new Date().toISOString(),
       originalLanguage: article.language
@@ -61,31 +61,36 @@ function toRecord(article: GdeltArticle, index: number): NormalizedRecord | null
   return { story };
 }
 
+async function queryGdelt(query: string, maxrecords = 12): Promise<NormalizedRecord[]> {
+  const params = new URLSearchParams({
+    query,
+    mode: 'artlist',
+    maxrecords: String(maxrecords),
+    timespan: '6h',
+    sort: 'datedesc',
+    format: 'json'
+  });
+
+  const response = await fetch(`${API}?${params.toString()}`, {
+    headers: { Accept: 'application/json' }
+  });
+
+  if (!response.ok) {
+    throw new Error(`GDELT request failed: ${response.status}`);
+  }
+
+  const payload = (await response.json()) as GdeltResponse;
+  return (payload.articles ?? [])
+    .map(toRecord)
+    .filter((record): record is NormalizedRecord => record !== null);
+}
+
 export const gdeltAdapter: SourceAdapter = {
   source,
   capabilities,
-
-  async fetch(): Promise<NormalizedRecord[]> {
-    const params = new URLSearchParams({
-      query: '(world OR global OR international)',
-      mode: 'artlist',
-      maxrecords: '12',
-      timespan: '6h',
-      sort: 'datedesc',
-      format: 'json'
-    });
-
-    const response = await fetch(`${API}?${params.toString()}`, {
-      headers: { Accept: 'application/json' }
-    });
-
-    if (!response.ok) {
-      throw new Error(`GDELT request failed: ${response.status}`);
-    }
-
-    const payload = (await response.json()) as GdeltResponse;
-    return (payload.articles ?? [])
-      .map(toRecord)
-      .filter((record): record is NormalizedRecord => record !== null);
-  }
+  fetch: () => queryGdelt('(world OR global OR international)', 12)
 };
+
+export function searchGdelt(query: string): Promise<NormalizedRecord[]> {
+  return queryGdelt(query, 20);
+}
