@@ -14,8 +14,6 @@ interface FeatureCollection {
 
 const GDACS_API = 'https://www.gdacs.org/gdacsapi/api/events/geteventlist/EVENTS4APP';
 
-// GDELT uses FIPS 10-4 country codes for source-country metadata.
-// Common ISO aliases are included where they are useful for resilience.
 const COUNTRY_POINTS: Record<string, [number, number]> = {
   US: [38.9, -77.0], CA: [56.1, -106.3], MX: [23.6, -102.5], GT: [15.8, -90.2], BH: [17.2, -88.5],
   HO: [14.6, -86.6], ES: [13.8, -88.9], NU: [12.9, -85.2], CS: [13.1, -59.6], VE: [7.0, -66.0],
@@ -158,13 +156,16 @@ export async function initWorldMap(element: HTMLElement, storiesPromise: Promise
     });
 
     if (points.length) {
-      heatLayer(points, {
+      const heat = heatLayer(points, {
         radius: 38,
         blur: 24,
         maxZoom: 5,
         minOpacity: 0.18,
         max: 1
-      }).addTo(newsLayer);
+      });
+      // The package's addTo type is narrower than Leaflet's LayerGroup API.
+      // Add the heat layer through the group so it remains toggleable.
+      newsLayer.addLayer(heat as unknown as L.Layer);
       newsOk = true;
     }
   }
