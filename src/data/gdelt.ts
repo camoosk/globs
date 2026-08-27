@@ -62,6 +62,60 @@ function toRecord(article: GdeltArticle, index: number): NormalizedRecord | null
   return { story };
 }
 
+function parsePayload(body: string): GdeltResponse {
+  try {
+    return JSON.parse(body) as GdeltResponse;
+  } catch {
+    throw new Error('GDELT returned invalid JSON');
+  }
+}
+
+async function fetchJson(params: URLSearchParams): Promise<GdeltResponse> {
+  const response = await fetch(`${API}?${params.toString()}`, {
+    method: 'GET',
+    headers: { Accept: 'application/json' }
+  });
+
+  const contentType = response.headers.get('content-type') ?? '';
+  const body = await response.text();
+
+  if (!response.ok) throw new Error(`GDELT request failed: ${response.status}`);
+  if (!contentType.toLowerCase().includes('json')) throw new Error('GDELT returned a non-JSON response');
+  return parsePayload(body);
+}
+
+function fetchJsonp(params: URLSearchParams): Promise<GdeltResponse> {
+  return new Promise((resolve, reject) => {
+    const callbackName = `__globsGdelt_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const script = document.createElement('script');
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      reject(new Error('GDELT JSONP timeout'));
+    }, 10000);
+
+    const cleanup = () => {
+      window.clearTimeout(timeout);
+      script.remove();
+      delete (window as unknown as Record<string, unknown>)[callbackName];
+    };
+
+    (window as unknown as Record<string, unknown>)[callbackName] = (payload: GdeltResponse) => {
+      cleanup();
+      resolve(payload);
+    };
+
+    script.onerror = () => {
+      cleanup();
+      reject(new Error('GDELT JSONP request failed'));
+    };
+
+    params.set('format', 'json');
+    params.set('callback', callbackName);
+    script.src = `${API}?${params.toString()}`;
+    document.head.appendChild(script);
+  });
+}
+
 async function queryGdelt(query: string, maxrecords = 12): Promise<NormalizedRecord[]> {
   const params = new URLSearchParams({
     query,
@@ -72,27 +126,14 @@ async function queryGdelt(query: string, maxrecords = 12): Promise<NormalizedRec
     format: 'json'
   });
 
-  const response = await fetch(`${API}?${params.toString()}`, {
-    method: 'GET',
-    headers: { Accept: 'application/json' }
-  });
-
-  const contentType = response.headers.get('content-type') ?? '';
-  const body = await response.text();
-
-  if (!response.ok) {
-    throw new Error(`GDELT request failed: ${response.status}`);
-  }
-
-  if (!contentType.toLowerCase().includes('json')) {
-    throw new Error('GDELT returned a non-JSON response');
-  }
-
   let payload: GdeltResponse;
   try {
-    payload = JSON.parse(body) as GdeltResponse;
+    payload = await fetchJson(params);
   } catch {
-    throw new Error('GDELT returned invalid JSON');
+    // GDELT documents JSONP specifically for browser embedding. It gives the
+    // static GitHub Pages build a credential-free fallback when direct fetch
+    // is blocked by a transient browser/network policy.
+    payload = await fetchJsonp(params);
   }
 
   return (payload.articles ?? [])
@@ -103,9 +144,9 @@ async function queryGdelt(query: string, maxrecords = 12): Promise<NormalizedRec
 export const gdeltAdapter: SourceAdapter = {
   source,
   capabilities,
-  // Keep the initial query intentionally simple. GDELT's query language is
-  // powerful, but a simple global keyword is more resilient for a homepage.
-  fetch: () => queryGdelt('world', 12)
+  // Broad, lightweight homepage query. GDELT supports OR blocks and a rolling
+  // recent window, so this remains useful without credentials or a server.
+  fetch: () => queryGdelt('(world OR global OR breaking)', 20)
 };
 
 export function searchGdelt(query: string): Promise<NormalizedRecord[]> {
