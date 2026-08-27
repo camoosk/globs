@@ -1,4 +1,4 @@
-import L, { control } from 'leaflet';
+import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
 interface GeoJsonFeature {
@@ -62,6 +62,31 @@ function disasterLabel(properties: Record<string, unknown> = {}) {
   return `${type} · ${name}${level ? ` · ${level}` : ''}`;
 }
 
+class LegendControl extends L.Control {
+  onAdd() {
+    const div = L.DomUtil.create('div', 'map-legend');
+    div.innerHTML = '<b>World activity</b><span><i class="legend-news"></i> News activity</span><span><i class="legend-disaster"></i> Disaster</span>';
+    L.DomEvent.disableClickPropagation(div);
+    return div;
+  }
+}
+
+class StatusControl extends L.Control {
+  private element?: HTMLDivElement;
+
+  onAdd() {
+    const div = L.DomUtil.create('div', 'map-status');
+    div.textContent = 'Updating…';
+    this.element = div;
+    L.DomEvent.disableClickPropagation(div);
+    return div;
+  }
+
+  setText(text: string) {
+    if (this.element) this.element.textContent = text;
+  }
+}
+
 export async function initWorldMap(element: HTMLElement) {
   const map = L.map(element, { worldCopyJump: true, minZoom: 2, maxZoom: 7, zoomControl: true }).setView([20, 0], 2);
 
@@ -73,61 +98,44 @@ export async function initWorldMap(element: HTMLElement) {
   const newsLayer = L.layerGroup().addTo(map);
   const disasterLayer = L.layerGroup().addTo(map);
 
-  const legend = control({ position: 'bottomright' });
-  legend.onAdd = () => {
-    const div = L.DomUtil.create('div', 'map-legend');
-    div.innerHTML = '<b>World activity</b><span><i class="legend-news"></i> News activity</span><span><i class="legend-disaster"></i> Disaster</span>';
-    L.DomEvent.disableClickPropagation(div);
-    return div;
-  };
-  legend.addTo(map);
+  new LegendControl({ position: 'bottomright' }).addTo(map);
+  const status = new StatusControl({ position: 'topright' }).addTo(map);
 
-  const status = control({ position: 'topright' });
-  status.onAdd = () => {
-    const div = L.DomUtil.create('div', 'map-status');
-    div.textContent = 'Updating…';
-    L.DomEvent.disableClickPropagation(div);
-    return div;
-  };
-  status.addTo(map);
+  const [newsFeatures, disasterFeatures] = await Promise.allSettled([fetchNewsActivity(), fetchDisasters()]);
 
-  try {
-    const [newsFeatures, disasterFeatures] = await Promise.allSettled([fetchNewsActivity(), fetchDisasters()]);
-
-    if (newsFeatures.status === 'fulfilled') {
-      newsFeatures.value.forEach((feature) => {
-        const point = pointFromFeature(feature);
-        if (!point) return;
-        const weight = asNumber(feature.properties?.count ?? feature.properties?.value ?? feature.properties?.weight) ?? 1;
-        const radius = Math.min(22, 5 + Math.sqrt(Math.max(weight, 1)) * 2.2);
-        L.circle(point, {
-          radius: radius * 18000,
-          stroke: false,
-          fillOpacity: Math.min(0.18, 0.04 + Math.log10(Math.max(weight, 1) + 1) * 0.05),
-          className: 'news-heat'
-        }).addTo(newsLayer);
-      });
-    }
-
-    if (disasterFeatures.status === 'fulfilled') {
-      disasterFeatures.value.slice(0, 100).forEach((feature) => {
-        const point = pointFromFeature(feature);
-        if (!point) return;
-        const properties = feature.properties ?? {};
-        const level = String(properties.alertlevel ?? properties.alertLevel ?? '').toLowerCase();
-        const severityClass = level === 'red' ? 'disaster-red' : level === 'orange' ? 'disaster-orange' : 'disaster-green';
-        L.circleMarker(point, { radius: level === 'red' ? 8 : 6, className: severityClass }).bindTooltip(disasterLabel(properties), { direction: 'top' }).addTo(disasterLayer);
-      });
-    }
-
-    const newsOk = newsFeatures.status === 'fulfilled';
-    const disasterOk = disasterFeatures.status === 'fulfilled';
-    status.getContainer()!.textContent = newsOk && disasterOk ? 'Live sources · updated now' : 'Partial source availability';
-  } catch {
-    status.getContainer()!.textContent = 'Partial source availability';
+  if (newsFeatures.status === 'fulfilled') {
+    newsFeatures.value.forEach((feature) => {
+      const point = pointFromFeature(feature);
+      if (!point) return;
+      const weight = asNumber(feature.properties?.count ?? feature.properties?.value ?? feature.properties?.weight) ?? 1;
+      const radius = Math.min(22, 5 + Math.sqrt(Math.max(weight, 1)) * 2.2);
+      L.circle(point, {
+        radius: radius * 18000,
+        stroke: false,
+        fillOpacity: Math.min(0.18, 0.04 + Math.log10(Math.max(weight, 1) + 1) * 0.05),
+        className: 'news-heat'
+      }).addTo(newsLayer);
+    });
   }
 
-  L.control.layers(undefined, { 'News activity': newsLayer, 'Disasters': disasterLayer }, { collapsed: true, position: 'topright' }).addTo(map);
+  if (disasterFeatures.status === 'fulfilled') {
+    disasterFeatures.value.slice(0, 100).forEach((feature) => {
+      const point = pointFromFeature(feature);
+      if (!point) return;
+      const properties = feature.properties ?? {};
+      const level = String(properties.alertlevel ?? properties.alertLevel ?? '').toLowerCase();
+      const severityClass = level === 'red' ? 'disaster-red' : level === 'orange' ? 'disaster-orange' : 'disaster-green';
+      L.circleMarker(point, { radius: level === 'red' ? 8 : 6, className: severityClass })
+        .bindTooltip(disasterLabel(properties), { direction: 'top' })
+        .addTo(disasterLayer);
+    });
+  }
+
+  const newsOk = newsFeatures.status === 'fulfilled';
+  const disasterOk = disasterFeatures.status === 'fulfilled';
+  status.setText(newsOk && disasterOk ? 'Live sources · updated now' : 'Partial source availability');
+
+  L.control.layers(undefined, { 'News activity': newsLayer, Disasters: disasterLayer }, { collapsed: true, position: 'topright' }).addTo(map);
 
   window.setTimeout(() => map.invalidateSize(), 0);
   return map;
