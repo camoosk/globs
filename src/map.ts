@@ -1,4 +1,4 @@
-import L from 'leaflet';
+import L, { control } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
 interface GeoJsonFeature {
@@ -73,7 +73,7 @@ export async function initWorldMap(element: HTMLElement) {
   const newsLayer = L.layerGroup().addTo(map);
   const disasterLayer = L.layerGroup().addTo(map);
 
-  const legend = L.control({ position: 'bottomright' });
+  const legend = control({ position: 'bottomright' });
   legend.onAdd = () => {
     const div = L.DomUtil.create('div', 'map-legend');
     div.innerHTML = '<b>World activity</b><span><i class="legend-news"></i> News activity</span><span><i class="legend-disaster"></i> Disaster</span>';
@@ -82,7 +82,7 @@ export async function initWorldMap(element: HTMLElement) {
   };
   legend.addTo(map);
 
-  const status = L.control({ position: 'topright' });
+  const status = control({ position: 'topright' });
   status.onAdd = () => {
     const div = L.DomUtil.create('div', 'map-status');
     div.textContent = 'Updating…';
