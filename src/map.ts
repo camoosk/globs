@@ -45,6 +45,21 @@ const COUNTRY_POINTS: Record<string, [number, number]> = {
   UY: [-32.5, -55.8], CL: [-33.4, -70.7]
 };
 
+const ISO3_TO_COUNTRY: Record<string, string> = {
+  USA: 'US', CAN: 'CA', MEX: 'MX', GTM: 'GT', BLZ: 'BH', HND: 'HO', SLV: 'ES', NIC: 'NU', CRI: 'CS', VEN: 'VE',
+  COL: 'CO', ECU: 'EC', PER: 'PE', BOL: 'BL', BRA: 'BR', ARG: 'AR', CHN: 'CN', JPN: 'JP', KOR: 'KR', PRK: 'KR',
+  TWN: 'TW', HKG: 'HK', IND: 'IN', PAK: 'PK', AFG: 'AF', IRN: 'IR', IRQ: 'IZ', ISR: 'IS', JOR: 'JO', LBN: 'LE',
+  SYR: 'SY', SAU: 'SA', YEM: 'YM', ARE: 'AE', QAT: 'QA', KWT: 'KU', BHR: 'BA', OMN: 'OM', TUR: 'TR', RUS: 'RU',
+  UKR: 'UA', BGR: 'BO', ROU: 'RO', HUN: 'HU', POL: 'PL', CZE: 'CZ', CHE: 'SZ', DEU: 'DE', FRA: 'FR', ESP: 'SP',
+  PRT: 'PO', ITA: 'IT', GBR: 'GB', IRL: 'IE', DNK: 'DK', SWE: 'SE', NOR: 'NO', FIN: 'FI', ISL: 'ISL', NLD: 'NL',
+  BEL: 'BE', LUX: 'LU', GRC: 'GR', ALB: 'AL', HRV: 'HR', SVN: 'SI', SRB: 'SR', BIH: 'BK', MKD: 'MK', SGP: 'SG',
+  MYS: 'MY', IDN: 'ID', PHL: 'PH', THA: 'TH', VNM: 'VN', BRN: 'BN', LAO: 'LA', KHM: 'KH', BTN: 'BT', NPL: 'NP',
+  BGD: 'BD', LKA: 'LK', MDV: 'MV', AUS: 'AU', NZL: 'NZ', FJI: 'FJ', PNG: 'PG', ZAF: 'ZA', NGA: 'NG', GHA: 'GH',
+  CIV: 'IV', GIN: 'GN', GNB: 'SG2', LBR: 'LI', SLE: 'SL', MLI: 'ML', MLI2: 'ML', MRT: 'MO', ETH: 'ET', KEN: 'KE',
+  TZA: 'TZ', UGA: 'UG', RWA: 'RW', SOM: 'SO', SDN: 'SU', EGY: 'EG', LBY: 'LY', TUN: 'TS', DZA: 'AG', MAR: 'MA',
+  PRY: 'PY', URY: 'UY', CHL: 'CL'
+};
+
 const asNumber = (value: unknown): number | null => {
   const number = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(number) ? number : null;
@@ -84,7 +99,20 @@ function disasterLabel(properties: Record<string, unknown> = {}) {
 function countryPoint(country?: string): [number, number] | null {
   if (!country) return null;
   const normalized = country.trim().toUpperCase();
-  return COUNTRY_POINTS[normalized] ?? null;
+  const countryKey = ISO3_TO_COUNTRY[normalized] ?? normalized;
+  return COUNTRY_POINTS[countryKey] ?? null;
+}
+
+function countryFromStory(story: Story): string | undefined {
+  const explicit = story.source.sourceCountryCode?.trim().toUpperCase();
+  if (explicit) return explicit;
+  try {
+    const hostname = new URL(story.source.url).hostname.toLowerCase();
+    const tld = hostname.split('.').pop();
+    return tld && tld.length === 2 ? tld.toUpperCase() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 class LegendControl extends L.Control {
@@ -140,10 +168,11 @@ export async function initWorldMap(element: HTMLElement, storiesPromise: Promise
   if (storiesResult.status === 'fulfilled') {
     const counts = new Map<string, number>();
     storiesResult.value.forEach((story) => {
-      const country = story.source.sourceCountryCode;
-      if (!country) return;
-      const key = country.trim().toUpperCase();
-      counts.set(key, (counts.get(key) ?? 0) + 1);
+      const country = countryFromStory(story);
+      const point = countryPoint(country);
+      if (!point) return;
+      const normalized = (ISO3_TO_COUNTRY[country!] ?? country!).toUpperCase();
+      counts.set(normalized, (counts.get(normalized) ?? 0) + 1);
     });
 
     const maxCount = Math.max(...counts.values(), 1);
@@ -151,20 +180,18 @@ export async function initWorldMap(element: HTMLElement, storiesPromise: Promise
     counts.forEach((count, country) => {
       const point = countryPoint(country);
       if (!point) return;
-      const intensity = Math.min(1, Math.max(0.08, Math.sqrt(count / maxCount)));
+      const intensity = Math.min(1, Math.max(0.12, Math.sqrt(count / maxCount)));
       points.push([point[0], point[1], intensity]);
     });
 
     if (points.length) {
       const heat = heatLayer(points, {
-        radius: 38,
-        blur: 24,
+        radius: 42,
+        blur: 26,
         maxZoom: 5,
-        minOpacity: 0.18,
+        minOpacity: 0.28,
         max: 1
       });
-      // The package's addTo type is narrower than Leaflet's LayerGroup API.
-      // Add the heat layer through the group so it remains toggleable.
       newsLayer.addLayer(heat as unknown as L.Layer);
       newsOk = true;
     }
