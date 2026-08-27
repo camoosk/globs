@@ -3,7 +3,7 @@
  *
  * These contracts deliberately describe normalized information rather than
  * any provider-specific response format. External adapters should map their
- * data into these types before the UI consumes it.
+ * data into these types before the UI consumes them.
  */
 
 export type ISODateTime = string;
@@ -29,6 +29,7 @@ export interface SourceReference {
   updatedAt?: ISODateTime;
   retrievedAt: ISODateTime;
   originalLanguage?: string;
+  sourceCountryCode?: string;
 }
 
 export interface Coordinates {
