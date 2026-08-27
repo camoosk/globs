@@ -65,21 +65,35 @@ async function queryGdelt(query: string, maxrecords = 12): Promise<NormalizedRec
   const params = new URLSearchParams({
     query,
     mode: 'artlist',
-    maxrecords: String(maxrecords),
-    timespan: '6h',
+    maxrecords: String(Math.min(maxrecords, 50)),
+    timespan: '24h',
     sort: 'datedesc',
     format: 'json'
   });
 
   const response = await fetch(`${API}?${params.toString()}`, {
+    method: 'GET',
     headers: { Accept: 'application/json' }
   });
+
+  const contentType = response.headers.get('content-type') ?? '';
+  const body = await response.text();
 
   if (!response.ok) {
     throw new Error(`GDELT request failed: ${response.status}`);
   }
 
-  const payload = (await response.json()) as GdeltResponse;
+  if (!contentType.toLowerCase().includes('json')) {
+    throw new Error('GDELT returned a non-JSON response');
+  }
+
+  let payload: GdeltResponse;
+  try {
+    payload = JSON.parse(body) as GdeltResponse;
+  } catch {
+    throw new Error('GDELT returned invalid JSON');
+  }
+
   return (payload.articles ?? [])
     .map(toRecord)
     .filter((record): record is NormalizedRecord => record !== null);
@@ -88,7 +102,9 @@ async function queryGdelt(query: string, maxrecords = 12): Promise<NormalizedRec
 export const gdeltAdapter: SourceAdapter = {
   source,
   capabilities,
-  fetch: () => queryGdelt('(world OR global OR international)', 12)
+  // Keep the initial query intentionally simple. GDELT's query language is
+  // powerful, but a simple global keyword is more resilient for a homepage.
+  fetch: () => queryGdelt('world', 12)
 };
 
 export function searchGdelt(query: string): Promise<NormalizedRecord[]> {
