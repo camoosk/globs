@@ -3,6 +3,7 @@ import { messages, resolveLocale } from './locale';
 import { supportConfig } from './config/support';
 import { fetchSourceData } from './data';
 import { searchGdelt } from './data/gdelt';
+import { initWorldMap } from './map';
 import type { Story } from './domain';
 
 const locale = resolveLocale();
@@ -43,12 +44,17 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
       <form class="search" id="search-form" role="search">
         <label class="sr-only" for="search-input">${t.explore}</label>
         <input id="search-input" type="search" placeholder="${t.searchPlaceholder}" autocomplete="off" />
-        <button type="submit">Explore</button>
+        <button type="submit">${t.explore}</button>
       </form>
     </section>
+
+    <section class="panel map-panel" aria-label="Live world map">
+      <div class="panel-heading map-heading"><div><span>🌍</span><h2>${t.worldNow}</h2></div><small>News activity + disaster signals</small></div>
+      <div id="world-map" class="world-map" role="application" aria-label="Live world activity map"></div>
+    </section>
+
     <section class="content-grid" aria-label="World discovery">
       <article class="panel featured"><div class="panel-heading"><span>🔥</span><h2>${t.trending}</h2></div><div id="trending-list" class="story-list"><p class="muted">${t.loading}</p></div></article>
-      <article class="panel map-panel"><div class="panel-heading"><span>🌍</span><h2>${t.worldNow}</h2></div><div class="map-placeholder" role="img" aria-label="World map preview"><div class="map-grid"></div><span class="map-dot dot-a"></span><span class="map-dot dot-b"></span><span class="map-dot dot-c"></span><span class="map-dot dot-d"></span><span class="map-dot dot-e"></span><p>Geographic exploration</p></div></article>
       <article class="panel latest-panel"><div class="panel-heading"><span>◷</span><h2>${t.latest}</h2></div><div id="latest-list" class="story-list"><p class="muted">${t.loading}</p></div></article>
     </section>
   </main>
@@ -78,6 +84,7 @@ async function loadWorld() {
   renderStories('trending-list', stories.slice(0, 5), t.unavailable);
 }
 
+void initWorldMap(document.querySelector<HTMLElement>('#world-map')!).catch(() => undefined);
 void loadWorld();
 
 document.querySelector<HTMLFormElement>('#search-form')?.addEventListener('submit', async (event) => {
